@@ -3,98 +3,93 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
+import numpy as np
 
-# 数据加载和预处理
+# 定义注意力机制模块
+class Attention(nn.Module):
+    def __init__(self, input_dim, attention_dim):
+        super(Attention, self).__init__()
+        self.attention = nn.Sequential(
+            nn.Linear(input_dim, attention_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(attention_dim, 1)
+        )
+
+    def forward(self, x):
+        # x: [batch_size, seq_len, input_dim]
+        attention_weights = self.attention(x)  # [batch_size, seq_len, 1]
+        attention_weights = torch.softmax(attention_weights, dim=1)  # [batch_size, seq_len, 1]
+        weighted_sum = torch.sum(x * attention_weights, dim=1)  # [batch_size, input_dim]
+        return weighted_sum, attention_weights
+
+# 定义包含注意力机制的模型
+class AttentionModel(nn.Module):
+    def __init__(self, input_dim, attention_dim, hidden_dim, output_dim):
+        super(AttentionModel, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.attention = Attention(hidden_dim, attention_dim)
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)  # 展平输入
+        x = self.fc1(x)
+        x, attention_weights = self.attention(x.unsqueeze(1))  # 添加序列维度
+        x = self.fc2(x)
+        return x, attention_weights
+
+# 数据预处理
 transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.5,), (0.5,))
 ])
 
-train_dataset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+# 加载MNIST数据集
+train_dataset = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+test_dataset = torchvision.datasets.MNIST(root='./data', train=False, download=True, transform=transform)
 
-test_dataset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
-test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=64, shuffle=True)
+test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=64, shuffle=False)
 
-# 注意力模块
-class Attention(nn.Module):
-    def __init__(self, in_channels):
-        super(Attention, self).__init__()
-        self.conv = nn.Conv2d(in_channels, 1, kernel_size=1)
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, x):
-        batch_size, c, h, w = x.size()
-        # [B, C, H, W] -> [B, H*W, C]
-        proj_query = x.view(batch_size, c, -1).permute(0, 2, 1)
-        # [B, C, H, W] -> [B, C, H*W]
-        proj_key = x.view(batch_size, c, -1)
-        # [B, H*W, H*W]
-        energy = torch.bmm(proj_query, proj_key)
-        attention = self.softmax(energy)
-        # [B, C, H*W]
-        proj_value = x.view(batch_size, c, -1)
-
-        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
-        out = out.view(batch_size, c, h, w)
-        return out
-
-# 定义CNN模型，结合注意力机制
-class AttentionCNN(nn.Module):
-    def __init__(self):
-        super(AttentionCNN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
-        self.attention = Attention(64)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
-        self.fc1 = nn.Linear(64 * 8 * 8, 128)
-        self.fc2 = nn.Linear(128, 10)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(p=0.5)
-
-    def forward(self, x):
-        x = self.pool(self.relu(self.conv1(x)))
-        x = self.pool(self.relu(self.conv2(x)))
-        x = self.attention(x)  # Apply attention mechanism
-        x = x.view(-1, 64 * 8 * 8)
-        x = self.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.fc2(x)
-        return x
-
-# 实例化模型、定义损失函数和优化器
-model = AttentionCNN()
+# 初始化模型、损失函数和优化器
+model = AttentionModel(input_dim=28*28, attention_dim=128, hidden_dim=256, output_dim=10)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # 训练模型
-num_epochs = 10
+num_epochs = 5
 for epoch in range(num_epochs):
     model.train()
-    running_loss = 0.0
-    for i, (inputs, labels) in enumerate(train_loader):
-        optimizer.zero_grad()
-        outputs = model(inputs)
+    for images, labels in train_loader:
+        outputs, _ = model(images)
         loss = criterion(outputs, labels)
+
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        running_loss += loss.item()
-        if i % 100 == 99:    # 每100个小批量输出一次loss
-            print(f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{len(train_loader)}], Loss: {running_loss/100:.4f}')
-            running_loss = 0.0
 
-print('Finished Training')
+    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
 
-# 测试模型
+# 测试模型并可视化注意力权重
 model.eval()
-correct = 0
-total = 0
 with torch.no_grad():
-    for inputs, labels in test_loader:
-        outputs = model(inputs)
+    for images, labels in test_loader:
+        outputs, attention_weights = model(images)
         _, predicted = torch.max(outputs.data, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
 
-print(f'Accuracy of the model on the test images: {100 * correct / total:.2f}%')
+        # 只可视化第一个batch中的第一张图片
+        image = images[0].squeeze().numpy()
+        attention_weight = attention_weights[0].squeeze().numpy()
+
+        # 将注意力权重映射回原始图像的空间维度
+        attention_map = attention_weight.reshape(28, 28)
+
+        # 可视化原始图像和注意力权重
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        ax[0].imshow(image, cmap='gray')
+        ax[0].set_title('Original Image')
+        ax[1].imshow(attention_map, cmap='hot', interpolation='nearest')
+        ax[1].set_title('Attention Map')
+        plt.show()
+
+        break  # 只可视化一个batch中的一张图片

@@ -9,6 +9,8 @@ class DTreeID3(object):
         self.epsilon = epsilon
 
     def fit(self, X_train, Y_train):
+        # A_recorder 用来解析特征
+        print("X_train.shape",X_train.shape)
         A_recorder = np.arange(X_train.shape[1])
         self._train(X_train, Y_train, self.tree, A_recorder)
 
@@ -62,7 +64,10 @@ class DTreeID3(object):
             for k in range(len(a_cls)):
                 a_row_idxs = np.argwhere(A[:, j] == k)
                 # H(D)
+                print("a_row_idxs",a_row_idxs)
                 prob = self._cal_prob(D[a_row_idxs].T[0])
+                print("pro",D[a_row_idxs].T[0])
+                print("prob",prob)
                 prob = np.array([a if 0 < a <= 1 else 1 for a in prob])
                 H_D = -np.sum(prob * np.log2(prob))
                 # H(D|A)=SUM(p_i * H(D|A=a_i))
@@ -278,6 +283,7 @@ map_table = {'青年': 0, '中年': 1, '老年': 2,
 if __name__ == '__main__':
     row_, col_ = train_sets.shape
     train_sets_encode = np.array([[map_table[train_sets[i, j]] for j in range(col_)] for i in range(row_)])
+    print(train_sets_encode)
     X_t, Y_t = train_sets_encode[:, :-1], train_sets_encode[:, -1]
     for model in (DTreeID3(), DTreeC45(), DTreeCART()):
         model.fit(X_t, Y_t)

@@ -5,7 +5,6 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import ssl
-import ssl
 print(ssl.OPENSSL_VERSION)
 
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -25,6 +24,8 @@ test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 class SimpleCNN(nn.Module):
     def __init__(self):
         super(SimpleCNN, self).__init__()
+        # 第一个参数是通道数使用32个卷积核所以输出32个通道
+        #卷积核随步幅变化如果padding会在四周加上一圈，步幅大于1会下采样比如2就是每次长宽缩小一倍
         self.conv1 = nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
@@ -36,6 +37,7 @@ class SimpleCNN(nn.Module):
     def forward(self, x):
         x = self.pool(self.relu(self.conv1(x)))
         x = self.pool(self.relu(self.conv2(x)))
+        #tensor.view(*shape)shape是一个元组，指定新张量的形状
         x = x.view(-1, 64 * 8 * 8)
         x = self.relu(self.fc1(x))
         x = self.dropout(x)
